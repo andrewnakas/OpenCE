@@ -156,6 +156,9 @@ static const struct config_setting config_settings[] =
 		"Empty keeps the normal game menus. This runs only once per launch." },
 	{ "game.start_map", _config_string, "\"\"", "HALO_START_MAP", _environment_value, _platform_all,
 		"A campaign level to start in place of the main menu (a10, a30, ...); empty for the menu." },
+	{ "game.test_script", _config_string, "\"\"", "HALO_TEST_SCRIPT", _environment_value, _platform_all,
+		"Script commands for automated checks, each at a number of seconds into the\n"
+		"level: 5:cheat_deathless_player 1;60:game_won" },
 	{ "network.quick_play_map", _config_string, "\"beavercreek\"", "HALO_QUICK_PLAY_MAP", _environment_value, _platform_all,
 		"The multiplayer map quick play hosts." },
 	{ "network.quick_play_target", _config_string, "\"\"", "HALO_QUICK_PLAY_TARGET", _environment_value, _platform_all,

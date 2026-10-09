@@ -41,3 +41,4 @@ boolean network_game_client_migration_ready(struct network_game_client *);
 boolean network_game_server_migration_ready(struct network_game_server *);
 void network_game_server_migration_finish(struct network_game_server *);
 #endif
+void start_map_begin(const char *level) { (void)level; }

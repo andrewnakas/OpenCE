@@ -155,6 +155,8 @@ boolean web_match_migration_lost(void)
 	return TRUE;
 }
 
+void start_map_begin(const char *level);
+
 void quick_play_update(boolean main_menu_loaded)
 {
 	unsigned long now = system_milliseconds();
@@ -217,10 +219,7 @@ void quick_play_update(boolean main_menu_loaded)
 
 			if (start && start[0])
 			{
-				static char scenario[128];
-
-				snprintf(scenario, sizeof(scenario), "levels\\%s\\%s", start, start);
-				main_set_map_name(scenario);
+				start_map_begin(start);
 			}
 			return;
 		}

@@ -665,6 +665,7 @@ typedef char screenshot_and_framerate_globals_size_assert[
 void network_test_update(boolean main_menu_loaded, real seconds);
 #ifdef HALO_WEB
 void quick_play_update(boolean main_menu_loaded);
+void start_map_update(boolean main_menu_loaded);
 boolean web_match_migration_enabled(void);
 boolean web_match_migration_lost(void);
 #endif
@@ -3201,6 +3202,7 @@ void main_loop(
 #ifdef HALO_WEB
 		/* Production quick play owns only session setup, never player input. */
 		quick_play_update(main_globals.main_menu_scenario_loaded);
+		start_map_update(main_globals.main_menu_scenario_loaded);
 #endif
 
 		if (!shell_application_is_paused())

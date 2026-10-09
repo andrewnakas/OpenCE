@@ -118,8 +118,15 @@ class HaloQuickCoordinator {
     }
     if (this.result) return { result: this.result };
     const preservingMatch = this.recovering && this.hasMatch && this.presence.matchId !== null;
-    if (!preservingMatch && now - this.started >= HaloQuickCoordinator.TIMEOUT_MS)
+    if (!preservingMatch && now - this.started >= HaloQuickCoordinator.TIMEOUT_MS) {
+      // Nobody else was ever seen (offline, or signaling unreachable): play alone as the host.
+      if (!this.recovering && !peers.some(peer => peer.quick)) {
+        this.presence = { ...this.presence, role: 'host', hostId: this.id, phase: 'reserved', epoch: this.epoch };
+        this.result = { role: 'host', hostId: this.id, hostAddress: this.address };
+        return { result: this.result };
+      }
       return { error: 'The room could not agree on a reachable host. Check the connection, then try again.' };
+    }
     if (brokerReady && this.brokerSince === null) this.brokerSince = now;
     const active = peers.filter(peer => peer.quick && (peer.quick.epoch || 0) === this.epoch && Number.isInteger(peer.address) &&
       peer.address > 0 && peer.address <= 0xffffffff &&

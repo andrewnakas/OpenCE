@@ -576,6 +576,11 @@ boolean cache_files_precache_map_loaded(
 	return cached_map_files_find_map(tag_name_strip_path(map_name)) != NONE;
 }
 
+#ifdef HALO_WEB
+int web_request_map(const char *name);
+void web_note_map(const char *name);
+#endif
+
 boolean cache_files_precache_map_begin(
 	const char *map_name,
 	boolean copy_map)
@@ -586,8 +591,17 @@ boolean cache_files_precache_map_begin(
 	{
 		struct cache_file_header header;
 		char path[256];
+		boolean found = cache_file_read_header_from_dvd(cache_map_name, &header);
 
-		if (cache_file_read_header_from_dvd(cache_map_name, &header))
+#ifdef HALO_WEB
+		/* a level the site has not downloaded yet: the page fetches it now */
+		if (!found && copy_map && web_request_map(cache_map_name))
+		{
+			found = cache_file_read_header_from_dvd(cache_map_name, &header);
+		}
+		web_note_map(cache_map_name);
+#endif
+		if (found)
 		{
 			long buffer_size = cache_copy_buffer_size(copy_map);
 			void *buffer = texture_cache_steal_memory(buffer_size);

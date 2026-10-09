@@ -11,6 +11,7 @@ and config.toml are kept, at /data, then starts the game
 */
 
 #include <emscripten.h>
+#include <emscripten/threading.h>
 #include <emscripten/wasmfs.h>
 #include <errno.h>
 #include <stdio.h>
@@ -37,6 +38,39 @@ size_t emscripten_get_heap_size(void)
 	size_t size = (size_t)__builtin_wasm_memory_size(0) << 16;
 
 	return size > WEB_HEAP_LIMIT ? WEB_HEAP_LIMIT : size;
+}
+
+/* ---------- maps on demand
+
+The clean-room site holds each campaign level as a separate download. When
+the game asks for a map that is not in /data/maps, the page fetches it
+(Module.haloMessage kinds 7 and 8, port/web/site/app.js) while this thread
+waits; the page answers through web_map_request_done. */
+
+static volatile int map_request_state; /* 0 idle, 1 waiting, 2 arrived, 3 unavailable */
+
+EMSCRIPTEN_KEEPALIVE void web_map_request_done(int available)
+{
+	__atomic_store_n(&map_request_state, available ? 2 : 3, __ATOMIC_RELEASE);
+}
+
+/* blocks until the page stored the map (TRUE) or cannot supply it (FALSE) */
+int web_request_map(const char *name)
+{
+	__atomic_store_n(&map_request_state, 1, __ATOMIC_RELEASE);
+	web_js_post(7, name);
+	while (__atomic_load_n(&map_request_state, __ATOMIC_ACQUIRE) == 1)
+	{
+		emscripten_thread_sleep(50);
+	}
+
+	return __atomic_exchange_n(&map_request_state, 0, __ATOMIC_ACQ_REL) == 2;
+}
+
+/* the game is loading or queueing this map: the page may fetch what follows it */
+void web_note_map(const char *name)
+{
+	web_js_post(8, name);
 }
 
 /* ---------- start */

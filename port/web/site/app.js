@@ -38,6 +38,7 @@ can run the game, copies the game data out of the player's disc image
     audio: null,
     started: false,
     shared: null,
+    cleanQueue: Promise.resolve(),
     offsets: null,
     log: [],
     wakeLock: null,
@@ -240,6 +241,53 @@ can run the game, copies the game data out of the player's disc image
 
   // ---------- clean-room maps (clean/maps.json: [{name, size, sha256}])
 
+  // The manifest lists every clean map: {name, size, sha256, parts?, part_sha256?, base?}.
+  // A map over GitHub's file limit is served in pieces (name.part0, ...), and `base` names
+  // another folder of this origin when the campaign levels live in their own repository.
+  const CAMPAIGN = ['a10', 'a30', 'a50', 'b30', 'b40', 'c10', 'c20', 'c40', 'd20', 'd40'].map(name => name + '.map');
+
+  async function readMarker(folder) {
+    try { return JSON.parse(await (await (await folder.getFileHandle('.complete')).getFile()).text()); }
+    catch { return null; }
+  }
+
+  // which downloaded maps are the manifest's current ones (name -> sha256)
+  async function cleanStored(folder) {
+    const marker = await readMarker(folder);
+    const stored = {};
+    if (!marker || !Array.isArray(marker.files)) return stored;
+    for (const f of state.clean.files) {
+      if (!marker.files.includes(f.name)) continue;
+      const sha = marker.sha ? marker.sha[f.name] : (marker.version === state.clean.version ? f.sha256 : '');
+      try {
+        if ((await (await folder.getFileHandle(f.name)).getFile()).size === f.size && sha) stored[f.name] = sha;
+      } catch { /* gone */ }
+    }
+    return stored;
+  }
+
+  async function refreshClean() {
+    const megabytes = list => (list.reduce((sum, f) => sum + f.size, 0) / 1e6).toFixed(0);
+    let stored = {};
+    try { stored = await cleanStored(await HaloCache.directory(['maps'], true)); } catch (error) { log('clean maps: ' + error.message); }
+    const clean = state.clean;
+    const missing = list => list.filter(f => stored[f.name] !== f.sha256);
+    clean.have = new Set(clean.files.filter(f => stored[f.name] === f.sha256).map(f => f.name));
+    clean.core = missing(clean.files.filter(f => QUICK_MAPS.includes(f.name)));
+    clean.multiplayer = missing(clean.files.filter(f => !CAMPAIGN.includes(f.name)));
+    clean.campaign = missing(clean.files.filter(f => f.name === 'ui.map' || CAMPAIGN.includes(f.name)));
+    const update = Object.keys(stored).length ? 'Update' : 'Download';
+    $('clean-get').textContent = `${update} Blood Gulch (${megabytes(clean.core)} MB)`;
+    $('clean-get').hidden = !clean.core.length;
+    $('clean-all').textContent = `All multiplayer maps (${megabytes(clean.multiplayer)} MB)`;
+    $('clean-all').hidden = !clean.multiplayer.length || clean.multiplayer.length === clean.core.length;
+    const levels = clean.files.filter(f => CAMPAIGN.includes(f.name)).length;
+    $('clean-campaign').textContent = `All ${levels} campaign levels (${megabytes(clean.campaign)} MB)`;
+    $('clean-campaign').hidden = !levels || !clean.campaign.length;
+    $('clean-note').hidden = !levels;
+    $('clean-data').hidden = false;
+  }
+
   async function loadCleanManifest() {
     try {
       const response = await fetch('clean/maps.json', { cache: 'no-cache' });
@@ -248,15 +296,7 @@ can run the game, copies the game data out of the player's disc image
       const files = (manifest.files || []).filter(f => HaloCache.expected.includes(f.name));
       if (!files.length || !files.some(f => f.name === 'ui.map')) return;
       state.clean = { files, version: manifest.version || '' };
-      // the menu and the quick-play map first; the other maps are a second, larger download
-      const megabytes = list => list.reduce((sum, f) => sum + f.size, 0) / 1e6;
-      const core = files.filter(f => QUICK_MAPS.includes(f.name));
-      state.clean.core = core.length === QUICK_MAPS.length && core.length < files.length ? core : files;
-      $('clean-get').textContent = state.clean.core === files ? `Download clean maps (${megabytes(files).toFixed(0)} MB)` :
-        `Download Blood Gulch (${megabytes(core).toFixed(0)} MB)`;
-      $('clean-all').textContent = `All ${files.length - 1} maps (${megabytes(files).toFixed(0)} MB)`;
-      $('clean-all').hidden = state.clean.core === files;
-      $('clean-data').hidden = false;
+      await refreshClean();
     } catch (error) {
       log('clean manifest: ' + error.message);
     }
@@ -267,54 +307,74 @@ can run the game, copies the game data out of the player's disc image
     return [...digest].map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  async function downloadClean(files) {
-    const total = files.reduce((sum, f) => sum + f.size, 0);
-    let done = 0;
-    $('progress').hidden = false;
-    const folder = await HaloCache.directory(['maps'], true);
-    try { await folder.removeEntry('.complete'); } catch { /* none yet */ }
-    for (const f of files) {
-      try {     // kept from an earlier download
-        if ((await (await folder.getFileHandle(f.name)).getFile()).size === f.size) { done += f.size; continue; }
-      } catch { /* not there yet */ }
-      $('progress-text').textContent = `Downloading ${f.name}`;
-      const parts = [];
-      let size = 0;
-      // (a large map is served in pieces: name.part0, name.part1, ...)
-      const urls = f.parts ? Array.from({ length: f.parts }, (_, i) => `${f.name}.part${i}`) : [f.name];
-      for (const url of urls) {
-        const response = await fetch('clean/' + url + '?v=' + f.sha256.slice(0, 12));
-        if (!response.ok) throw new Error(`${f.name}: HTTP ${response.status}`);
-        const reader = response.body.getReader();
-        for (;;) {
-          const { done: end, value } = await reader.read();
-          if (end) break;
-          parts.push(value);
-          size += value.length;
-          $('progress-fill').style.width = ((done + size) / total * 100).toFixed(1) + '%';
-        }
-      }
-      const blob = new Blob(parts);
-      if (size !== f.size || await hex(await blob.arrayBuffer()) !== f.sha256) {
-        throw new Error(`${f.name} did not download correctly; try again.`);
-      }
-      const writable = await (await folder.getFileHandle(f.name, { create: true })).createWritable();
-      await writable.write(blob);
-      await writable.close();
-      done += size;
-    }
-    const marker = await (await folder.getFileHandle('.complete', { create: true })).createWritable();
-    await marker.write(JSON.stringify({ files: files.map(f => f.name), bytes: total, source: 'clean',
-      version: state.clean.version }));
-    await marker.close();
+  // Fetch the maps that are missing or out of date into OPFS, one piece in memory at a
+  // time. The marker (.complete) is rewritten after each map, so an interrupted download
+  // keeps what it finished. Downloads run one after another (the game may ask for a level
+  // while a later one is being fetched ahead).
+  function downloadClean(files, report = () => {}) {
+    const run = state.cleanQueue.then(() => downloadCleanNow(files, report));
+    state.cleanQueue = run.catch(() => {});
+    return run;
   }
 
-  async function onCleanChosen(event, all = false) {
-    const files = all ? state.clean.files : state.clean.core;
+  async function downloadCleanNow(files, report) {
+    const folder = await HaloCache.directory(['maps'], true);
+    const stored = await cleanStored(folder);
+    const todo = files.filter(f => stored[f.name] !== f.sha256);
+    const total = todo.reduce((sum, f) => sum + f.size, 0);
+    let done = 0;
+    for (const f of todo) {
+      const writable = await (await folder.getFileHandle(f.name, { create: true })).createWritable();
+      let size = 0;
+      try {
+        const urls = f.parts ? Array.from({ length: f.parts }, (_, i) => `${f.name}.part${i}`) : [f.name];
+        for (let i = 0; i < urls.length; i++) {
+          const response = await fetch((f.base || 'clean/') + urls[i] + '?v=' + f.sha256.slice(0, 12));
+          if (!response.ok) throw new Error(`${f.name}: HTTP ${response.status}`);
+          const reader = response.body.getReader();
+          const chunks = [];
+          for (;;) {
+            const { done: end, value } = await reader.read();
+            if (end) break;
+            chunks.push(value);
+            size += value.length;
+            report(done + size, total, f.name);
+          }
+          const piece = await new Blob(chunks).arrayBuffer();
+          const expected = f.parts ? f.part_sha256 && f.part_sha256[i] : f.sha256;
+          if (expected && await hex(piece) !== expected) throw new Error(`${f.name} did not download correctly; try again.`);
+          await writable.write(piece);
+        }
+        if (size !== f.size) throw new Error(`${f.name} did not download correctly; try again.`);
+        await writable.close();
+      } catch (error) {
+        await writable.abort().catch(() => {});
+        throw error;
+      }
+      done += size;
+      stored[f.name] = f.sha256;
+      // the marker lists exactly the maps that are whole (cache.js checks the byte total)
+      const names = Object.keys(stored);
+      let bytes = 0;
+      for (const name of names) bytes += (await (await folder.getFileHandle(name)).getFile()).size;
+      const marker = await (await folder.getFileHandle('.complete', { create: true })).createWritable();
+      await marker.write(JSON.stringify({ files: names, bytes, source: 'clean', version: state.clean.version, sha: stored }));
+      await marker.close();
+      state.clean.have?.add(f.name);
+    }
+  }
+
+  async function onCleanChosen(event, which = 'core') {
+    const files = Array.isArray(which) ? state.clean.files.filter(f => which.includes(f.name)) : state.clean[which];
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     setDataBusy(true);
+    $('progress').hidden = false;
     try {
-      await HaloCache.withLock(() => downloadClean(files));
+      await HaloCache.withLock(() => downloadClean(files, (done, total, name) => {
+        $('progress-text').textContent = `Downloading ${name}`;
+        $('progress-fill').style.width = (done / total * 100).toFixed(1) + '%';
+      }));
+      await refreshClean();
       showSteps(await mapsState());
       $('progress-text').textContent = state.maps ? 'Done. Clean maps are ready to play.' : 'The clean maps are incomplete.';
     } catch (error) {
@@ -323,6 +383,38 @@ can run the game, copies the game data out of the player's disc image
     } finally {
       setDataBusy(false);
     }
+  }
+
+  // The running game needs a level that is not stored yet (it waits): fetch it, then answer.
+  async function supplyMap(name) {
+    const done = ok => window.Module?._web_map_request_done?.(ok ? 1 : 0);
+    const entry = state.clean?.files.find(f => f.name === name + '.map');
+    if (!entry) { log(`map ${name}: not in the clean set`); return done(false); }
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      try {
+        await downloadClean([entry], (got, total) =>
+          toast(`Downloading level ${name}: ${(got / Math.max(total, 1) * 100).toFixed(0)}%`, 600000));
+        toast(`Level ${name} is ready.`, 2500);
+        log(`map ${name}: downloaded`);
+        return done(true);
+      } catch (error) {
+        log(`map ${name}: ${error.message} (attempt ${attempt})`);
+        toast(`Could not download level ${name}; retrying…`, 600000);
+        await new Promise(resolve => setTimeout(resolve, 4000 * attempt));
+      }
+    }
+    toast(`Level ${name} could not be downloaded. Check the connection and reload.`, 600000);
+    done(false);
+  }
+
+  // The game is loading a campaign level: fetch the one after it ahead of time.
+  function noteMap(name) {
+    const next = state.clean && CAMPAIGN[CAMPAIGN.indexOf(name + '.map') + 1];
+    const entry = next && CAMPAIGN.includes(name + '.map') && state.clean.files.find(f => f.name === next);
+    if (!entry || state.clean.have?.has(next) || state.cleanAhead === next) return;
+    state.cleanAhead = next;
+    setTimeout(() => downloadClean([entry]).then(() => log(`map ${next}: fetched ahead`),
+      error => { state.cleanAhead = null; log(`map ${next}: ${error.message}`); }), 30000);
   }
 
   function requiredMaps() {
@@ -355,9 +447,8 @@ can run the game, copies the game data out of the player's disc image
   function showSteps(maps) {
     state.maps = maps;
     // with the first clean maps in place, the rest stay on offer
-    const more = !!maps && !!state.clean && state.clean.files.some(f => !maps.files.includes(f.name));
+    const more = !!maps && !!state.clean && state.clean.files.some(f => !state.clean.have.has(f.name));
     $('step-data').hidden = !!maps && !more;
-    $('clean-get').hidden = more;
     $('step-play').hidden = !maps;
     if (maps) {
       $('data-summary').textContent = `Game data: ${maps.files.length} maps, ${(maps.bytes / 1e9).toFixed(2)} GB.`;
@@ -576,6 +667,14 @@ can run the game, copies the game data out of the player's disc image
     if (open && document.pointerLockElement) document.exitPointerLock();
   }
 
+  // Host directly, without waiting for the room (the room's own election would
+  // otherwise time out later and report an error over the running game).
+  function playSolo(options = {}) {
+    state.soloHost = true;
+    cancelQuickPlay();
+    return play({ ...options, role: 'host' });
+  }
+
   async function maybeQuickPlay() {
     if (!state.checksReady || state.started || state.dataBusy || state.dataTransition || !state.maps) return;
     if (state.manualMode) {
@@ -585,7 +684,7 @@ can run the game, copies the game data out of the player's disc image
       }
       return;
     }
-    if (state.quickController || state.quickFailed) return;
+    if (state.quickController || state.quickFailed || state.soloHost) return;
     if (state.invite) {
       if (!hasFullMaps()) return;
       if (!state.gatewayInstalled || !state.gateway?.connected) {
@@ -753,7 +852,7 @@ can run the game, copies the game data out of the player's disc image
       const windowMs = now - previousTime;
       if (windowMs < 1000) return;
       const fps = (frames - previousFrames) * 1000 / windowMs;
-      output.textContent = `${fps.toFixed(1)} FPS`;
+      output.textContent = `${fps.toFixed(1)} FPS` + (state.shared ? `, audio gaps ${audioUnderruns()}` : '');
       output.title = `${canvas.width} × ${canvas.height}; frames received from the game worker`;
       samples.push({ fps: +fps.toFixed(2), frames, ms: Math.round(now),
         windowMs: +windowMs.toFixed(2), width: canvas.width, height: canvas.height });
@@ -766,6 +865,12 @@ can run the game, copies the game data out of the player's disc image
       if (!frames) previousTime = performance.now();
       frames++;
     };
+  }
+
+  // quanta the audio worklet filled with silence because the game's mixer fell behind
+  function audioUnderruns() {
+    if (!state.shared || !state.offsets || state.offsets.audioUnderruns === undefined) return 0;
+    return Atomics.load(new Int32Array(state.memory.buffer), sharedWord('audioUnderruns'));
   }
 
   function sharedWord(name) {
@@ -938,6 +1043,19 @@ can run the game, copies the game data out of the player's disc image
     if (diagnosticOptions.get('geometry_cache') === '1') argumentsList.push('--HALO_WEB_GEOMETRY_CACHE=1');
     const level = (diagnosticOptions.get('level') || '').replace(/[^a-z0-9_]/g, '');
     if (level && !role) argumentsList.push('--HALO_START_MAP=' + level);
+    // checks: ?env=HALO_NAME=value,HALO_OTHER=value passes settings, ?init=cmd;cmd is the console's init.txt
+    for (const pair of (diagnosticOptions.get('env') || '').split(',')) {
+      if (/^HALO_[A-Z0-9_]+=.*$/.test(pair)) argumentsList.push('--' + pair);
+    }
+    try {
+      const root = await navigator.storage.getDirectory();
+      const init = diagnosticOptions.get('init');
+      if (init) {
+        const file = await (await root.getFileHandle('init.txt', { create: true })).createWritable();
+        await file.write(init.split(';').join('\n') + '\n');
+        await file.close();
+      } else await root.removeEntry('init.txt').catch(() => {});
+    } catch (error) { log('init.txt: ' + error.message); }
     if (!settings.vsync) argumentsList.push('--HALO_NO_VSYNC=1');
     if (settings.glDebug) argumentsList.push('--HALO_GL_DEBUG=1');
 
@@ -1006,6 +1124,8 @@ can run the game, copies the game data out of the player's disc image
         else if (kind === 1) toast(text, 5000);
         else if (kind === 2) log('clipboard: ' + text);
         else if (kind === 4) log('thread error: ' + text);
+        else if (kind === 7) supplyMap(text);
+        else if (kind === 8) noteMap(text);
         else if (kind === 5) {
           log('game: ' + text);
           $('fatal').querySelector('h2').textContent = 'The game quit';
@@ -1019,6 +1139,18 @@ can run the game, copies the game data out of the player's disc image
         module._web_quick_play_set_address?.(HaloNet.address);
         module._web_quick_play_set_epoch?.(state.quickEpoch || 0);
         state.shared = module._web_shared_state();
+        // gaps only count against the game while its mixer was feeding the ring
+        // (the ring is idle, and the worklet silent, during loads)
+        let reportedUnderruns = 0, reportedWrite = 0;
+        setInterval(() => {
+          const count = audioUnderruns();
+          const write = Atomics.load(new Int32Array(state.memory.buffer), sharedWord('audioWrite'));
+          const mixed = (write - reportedWrite) / 480000;
+          if (count - reportedUnderruns >= 20 && mixed > 0.05)
+            log(`audio: ${count - reportedUnderruns} gaps in the last 10 s, mixer ran ${(mixed * 100).toFixed(0)}% (${count} gaps in all)`);
+          reportedUnderruns = count;
+          reportedWrite = write;
+        }, 10000);
         state.offsets = readOffsets(module);
         onVisibility();
         updateDisplaySize();
@@ -1385,8 +1517,9 @@ can run the game, copies the game data out of the player's disc image
     $('opt-gldebug').onchange = (event) => { settings.glDebug = event.target.checked; saveSettings(); };
     $('iso-file').onchange = onImageChosen;
     $('clean-get').onclick = onCleanChosen;
-    $('clean-all').onclick = (event) => onCleanChosen(event, true);
-    $('quick-clean').onclick = () => { unlockInteraction(); return play({ role: 'host', userGesture: true }); };
+    $('clean-all').onclick = (event) => onCleanChosen(event, 'multiplayer');
+    $('clean-campaign').onclick = (event) => onCleanChosen(event, 'campaign');
+    $('quick-clean').onclick = () => { unlockInteraction(); return playSolo({ userGesture: true }); };
     $('play').onclick = () => {
       unlockInteraction();
       if (!state.manualMode && (state.invite || state.selectedRoom)) return maybeQuickPlay();
@@ -1479,8 +1612,9 @@ can run the game, copies the game data out of the player's disc image
     showSteps(await mapsState());
     // ?auto=1 (headless checks): fetch the clean maps if needed, then start
     if (diagnosticOptions.get('auto') === '1') {
-      if (!state.maps && state.clean) await onCleanChosen(null, diagnosticOptions.has('map') || diagnosticOptions.has('level'));
-      if (state.maps) play(diagnosticOptions.get('quick') === 'host' ? { role: 'host' } : {});
+      const wanted = ['ui.map', QUICK_MAP + '.map'];
+      if (state.clean && wanted.some(name => !state.clean.have.has(name))) await onCleanChosen(null, wanted);
+      if (state.maps) diagnosticOptions.get('quick') === 'host' ? playSolo() : play();
     }
   }
 

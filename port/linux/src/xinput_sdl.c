@@ -225,6 +225,9 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	pad->bAnalogButtons[XINPUT_GAMEPAD_Y] |= analog(
 #ifndef HALO_WEB
 		k[SDL_SCANCODE_TAB] ||
+#else
+		/* Tab is the scoreboard here: 1 and V switch weapons */
+		k[SDL_SCANCODE_1] || k[SDL_SCANCODE_V] ||
 #endif
 		SDL_GetTicks() < wheel_press_until_ms);
 	pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] |= analog(k[SDL_SCANCODE_Q]);
