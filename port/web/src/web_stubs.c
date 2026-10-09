@@ -47,6 +47,23 @@ void p2p_discord_set_hosting(const char *secret, int player_count, int maximum_p
 	(void)maximum_player_count;
 }
 
+/* no Discord in the browser: no user signed in */
+void p2p_discord_sanitize(char *destination, int size, const char *source, int name)
+{
+	(void)source;
+	(void)name;
+	if (size > 0)
+		destination[0] = 0;
+}
+
+void p2p_discord_user(char *id, int id_size, char *name, int name_size)
+{
+	if (id_size > 0)
+		id[0] = 0;
+	if (name_size > 0)
+		name[0] = 0;
+}
+
 /* ---------- the C library (posix_net.c) */
 
 ssize_t getrandom(void *buffer, size_t size, unsigned int flags)

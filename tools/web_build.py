@@ -29,7 +29,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import MUSL_MATH_DIR, XDK_INCLUDE, compile_launcher, musl_math_sources, xdk_headers
+from .linux_build import MUSL_MATH_DIR, XDK_INCLUDE, compile_launcher, game_sources, musl_math_sources, xdk_headers
+from .embed_assets import hud_assets_build
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/web")
@@ -232,41 +233,35 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         obj = obj_dir / Path(str(source).lstrip("/")).with_suffix(".o")
         if str(source).startswith(str(BUILD)):
             obj = obj_dir / source.relative_to(BUILD).with_suffix(".o")
-        n.build(outputs=obj, rule="web_cc", inputs=source, implicit=implicit_headers,
+        # forward slashes: emcc reads the link's response file with
+        # backslashes as escapes
+        n.build(outputs=obj.as_posix(), rule="web_cc", inputs=Path(source).as_posix(), implicit=implicit_headers,
                 variables={"cflags": cflags})
-        objects.append(obj)
+        objects.append(obj.as_posix())
 
-    # the game
-    excluded = set(config.get("exclude_sources", []))
-    for proj in sln.projects:
-        if proj.name not in config["projects"]:
-            continue
-        options = proj.options
-        defines = " ".join(f"-D{d}" for d in options.get("defines") or [])
-        includes = " ".join(
-            f"-I{_quote(d)}" for d in options.get("include_dirs") or [] if Path(d) != Path("xbox/include")
-        )
-        game_cflags = " ".join([
-            abi, code, " ".join(GAME_FLAGS),
-            f"-include {prefix_header}", f"-include {semantics_header}", defines,
-            f"-I{PORT_DIR}/include", f"-I{LINUX_DIR}/include", includes, f"-idirafter {XDK_INCLUDE}",
-        ])
-        for obj in proj.objects:
-            name = str(obj.file_path).replace(os.sep, "/")
-            if obj.status.name == "Missing" or name in excluded or obj.file_path.suffix.lower() != ".c":
-                continue
-            cflags = game_cflags
-            if name in VARIADIC_PROTOTYPE_FILES:
-                cflags += f" -include {ANDROID_DIR}/include/halo_android_variadic_prototypes.h"
-            if name in PROTOTYPE_FILES:
-                cflags += f" -include {PROTOTYPE_FILES[name]}"
-            if name == "source/shell/shell_xbox.c":
-                # port/web/src/web_main.c starts the game once the browser's
-                # storage is mounted
-                cflags += " -Dmain=halo_game_main"
-            add_object(obj.file_path, cflags)
-        for source in sorted(Path(config["game_sources"]).glob("*.c")):
-            add_object(source, game_cflags)
+    # the game (port.json "game", as the Linux and Android builds)
+    game = config["game"]
+    defines = " ".join(f"-D{d}" for d in game.get("defines", []))
+    includes = " ".join(f"-I{_quote(Path(d))}" for d in game.get("include_dirs", []))
+    game_cflags = " ".join([
+        abi, code, " ".join(GAME_FLAGS),
+        f"-include {prefix_header}", f"-include {semantics_header}", defines,
+        f"-I{PORT_DIR}/include", f"-I{LINUX_DIR}/include", includes, f"-idirafter {XDK_INCLUDE}",
+    ])
+    for source in game_sources(config):
+        name = source.as_posix()
+        cflags = game_cflags
+        if name in VARIADIC_PROTOTYPE_FILES:
+            cflags += f" -include {ANDROID_DIR}/include/halo_android_variadic_prototypes.h"
+        if name in PROTOTYPE_FILES:
+            cflags += f" -include {PROTOTYPE_FILES[name]}"
+        if name == "source/shell/shell_xbox.c":
+            # port/web/src/web_main.c starts the game once the browser's
+            # storage is mounted
+            cflags += " -Dmain=halo_game_main"
+        add_object(source, cflags)
+    for source in sorted(Path(config["game_sources"]).glob("*.c")):
+        add_object(source, game_cflags)
 
     # the platform layer shared with Linux, and the web runtime
     platform_cflags = " ".join([
@@ -288,6 +283,9 @@ def generate_web_build(n: Writer, sln: Any) -> None:
         add_object(source, posix_cflags if source.name.startswith("posix_") else platform_cflags)
     for source in sorted((PORT_DIR / "src").glob("*.c")):
         add_object(source, posix_cflags if source.name in ("web_stubs.c", "web_net.c") else platform_cflags)
+    # the high-res HUD, titles and fonts (tools/embed_assets.py), as on Linux
+    for source in hud_assets_build(n, "web", BUILD / "generated" / "hud_hires_assets.c"):
+        add_object(source, platform_cflags)
     add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
     add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))
     musl_math_cflags = " ".join([
