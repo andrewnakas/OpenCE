@@ -22,7 +22,9 @@ can run the game, copies the game data out of the player's disc image
   const MEMORY_PAGES = 0x88000000 / 65536;
   const REQUIRED_BYTES = 2.1e9;
   const DEFAULT_ROOM = window.HALO_BROWSER_CONFIG?.defaultRoom ?? 'FQLX01';
-  const QUICK_MAP = window.HALO_BROWSER_CONFIG?.quickMap ?? 'beavercreek';
+  // (?map=NAME: another multiplayer map for quick play, for checks)
+  const QUICK_MAP = (new URLSearchParams(location.search).get('map') || '').replace(/[^a-z0-9_]/g, '') ||
+    (window.HALO_BROWSER_CONFIG?.quickMap ?? 'beavercreek');
   const QUICK_MAPS = ['ui.map', QUICK_MAP + '.map'];
   const diagnosticOptions = new URLSearchParams(location.search);
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
@@ -246,8 +248,14 @@ can run the game, copies the game data out of the player's disc image
       const files = (manifest.files || []).filter(f => HaloCache.expected.includes(f.name));
       if (!files.length || !files.some(f => f.name === 'ui.map')) return;
       state.clean = { files, version: manifest.version || '' };
-      const megabytes = files.reduce((sum, f) => sum + f.size, 0) / 1e6;
-      $('clean-get').textContent = `Download clean maps (${megabytes.toFixed(0)} MB)`;
+      // the menu and the quick-play map first; the other maps are a second, larger download
+      const megabytes = list => list.reduce((sum, f) => sum + f.size, 0) / 1e6;
+      const core = files.filter(f => QUICK_MAPS.includes(f.name));
+      state.clean.core = core.length === QUICK_MAPS.length && core.length < files.length ? core : files;
+      $('clean-get').textContent = state.clean.core === files ? `Download clean maps (${megabytes(files).toFixed(0)} MB)` :
+        `Download Blood Gulch (${megabytes(core).toFixed(0)} MB)`;
+      $('clean-all').textContent = `All ${files.length - 1} maps (${megabytes(files).toFixed(0)} MB)`;
+      $('clean-all').hidden = state.clean.core === files;
       $('clean-data').hidden = false;
     } catch (error) {
       log('clean manifest: ' + error.message);
@@ -259,14 +267,16 @@ can run the game, copies the game data out of the player's disc image
     return [...digest].map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  async function downloadClean() {
-    const files = state.clean.files;
+  async function downloadClean(files) {
     const total = files.reduce((sum, f) => sum + f.size, 0);
     let done = 0;
     $('progress').hidden = false;
     const folder = await HaloCache.directory(['maps'], true);
     try { await folder.removeEntry('.complete'); } catch { /* none yet */ }
     for (const f of files) {
+      try {     // kept from an earlier download
+        if ((await (await folder.getFileHandle(f.name)).getFile()).size === f.size) { done += f.size; continue; }
+      } catch { /* not there yet */ }
       $('progress-text').textContent = `Downloading ${f.name}`;
       const response = await fetch('clean/' + f.name + '?v=' + f.sha256.slice(0, 12));
       if (!response.ok) throw new Error(`${f.name}: HTTP ${response.status}`);
@@ -295,11 +305,12 @@ can run the game, copies the game data out of the player's disc image
     await marker.close();
   }
 
-  async function onCleanChosen() {
+  async function onCleanChosen(event, all = false) {
+    const files = all ? state.clean.files : state.clean.core;
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     setDataBusy(true);
     try {
-      await HaloCache.withLock(downloadClean);
+      await HaloCache.withLock(() => downloadClean(files));
       showSteps(await mapsState());
       $('progress-text').textContent = state.maps ? 'Done. Clean maps are ready to play.' : 'The clean maps are incomplete.';
     } catch (error) {
@@ -339,7 +350,10 @@ can run the game, copies the game data out of the player's disc image
 
   function showSteps(maps) {
     state.maps = maps;
-    $('step-data').hidden = !!maps;
+    // with the first clean maps in place, the rest stay on offer
+    const more = !!maps && !!state.clean && state.clean.files.some(f => !maps.files.includes(f.name));
+    $('step-data').hidden = !!maps && !more;
+    $('clean-get').hidden = more;
     $('step-play').hidden = !maps;
     if (maps) {
       $('data-summary').textContent = `Game data: ${maps.files.length} maps, ${(maps.bytes / 1e9).toFixed(2)} GB.`;
@@ -361,6 +375,7 @@ can run the game, copies the game data out of the player's disc image
     state.dataBusy = busy;
     $('iso-file').disabled = busy;
     $('clean-get').disabled = busy;
+    $('clean-all').disabled = busy;
     $('delete-data').disabled = busy;
     updatePlayButton();
     connectPendingInvite();
@@ -1364,6 +1379,7 @@ can run the game, copies the game data out of the player's disc image
     $('opt-gldebug').onchange = (event) => { settings.glDebug = event.target.checked; saveSettings(); };
     $('iso-file').onchange = onImageChosen;
     $('clean-get').onclick = onCleanChosen;
+    $('clean-all').onclick = (event) => onCleanChosen(event, true);
     $('quick-clean').onclick = () => { unlockInteraction(); return play({ role: 'host', userGesture: true }); };
     $('play').onclick = () => {
       unlockInteraction();
@@ -1457,7 +1473,7 @@ can run the game, copies the game data out of the player's disc image
     showSteps(await mapsState());
     // ?auto=1 (headless checks): fetch the clean maps if needed, then start
     if (diagnosticOptions.get('auto') === '1') {
-      if (!state.maps && state.clean) await onCleanChosen();
+      if (!state.maps && state.clean) await onCleanChosen(null, diagnosticOptions.has('map'));
       if (state.maps) play(diagnosticOptions.get('quick') === 'host' ? { role: 'host' } : {});
     }
   }
