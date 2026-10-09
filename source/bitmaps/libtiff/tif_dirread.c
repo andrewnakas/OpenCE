@@ -46,7 +46,7 @@ static struct tif_dirread_data data_002b8618 = {
  */
 #include "tiffioP.h"
 
-extern void *debug_malloc(unsigned int, int, const char *, long);
+extern void *debug_malloc(unsigned int, unsigned char, const char *, long);
 extern void debug_free(void *, const char *, long);
 extern void *csmemcpy(void *, const void *, unsigned long);
 

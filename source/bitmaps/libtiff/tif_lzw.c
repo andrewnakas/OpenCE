@@ -55,7 +55,7 @@ static struct tif_lzw_data data_002dad38 = {
 #include <assert.h>
 #include "prototypes.h"
 
-extern void *debug_malloc(unsigned int, int, const char *, long);
+extern void *debug_malloc(unsigned int, unsigned char, const char *, long);
 extern void debug_free(void *, const char *, long);
 extern void *csmemset(void *, long, unsigned long);
 

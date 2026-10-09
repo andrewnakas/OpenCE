@@ -29,7 +29,7 @@ enum
 /* the first profile of this browser, or a new one named Player */
 static boolean start_map_choose_profile(void)
 {
-	word count = 0;
+	word count = MAXIMUM_START_PROFILES;      /* in: room in the list; out: profiles found */
 	long indices[MAXIMUM_START_PROFILES];
 	long profile_index = NONE;
 	struct player_profile profile;

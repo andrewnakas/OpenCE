@@ -35,7 +35,7 @@ static char rcsid[] = "$Header: /usr/people/sam/tiff/libtiff/RCS/tif_fax3.c,v 1.
 #include <stdio.h>
 #include <assert.h>
 #include "tif_fax3.h"
-extern void *debug_malloc(unsigned int, int, const char *, long);
+extern void *debug_malloc(unsigned int, unsigned char, const char *, long);
 extern void debug_free(void *, const char *, long);
 extern void *csmemset(void *, long, unsigned long);
 extern void *csmemcpy(void *, const void *, unsigned long);

@@ -442,6 +442,8 @@ static boolean network_game_client_handle_message_server_graceful_game_exit_post
 
 /* ---------- globals */
 
+boolean network_game_distributed(void);
+
 /* A reconnect at the same address can receive gameplay packets queued for
 the previous connection. Until acceptance and loading finish, the new settings
 snapshot supplies membership and there is no local simulation to advance. */

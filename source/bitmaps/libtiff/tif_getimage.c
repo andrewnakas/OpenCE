@@ -35,7 +35,7 @@ static char data_002dac80[] = "$Header: /usr/people/sam/tiff/libtiff/RCS/tif_get
 #include "tiffcompat.h"
 #include "prototypes.h"
 
-extern void *debug_malloc(unsigned int, int, const char *, long);
+extern void *debug_malloc(unsigned int, unsigned char, const char *, long);
 extern void debug_free(void *, const char *, long);
 
 #define TIF_GETIMAGE_FILE "c:\\halo\\SOURCE\\bitmaps\\libtiff\\tif_getimage.c"

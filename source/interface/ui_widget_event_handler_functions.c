@@ -1023,17 +1023,21 @@ void game_engine_playlist_next(
 	long);
 void playlist_profile_delete(
 	long profile_index);
+/* (the definition's own types, interface/virtual_keyboard.c: under link-time
+optimization a call through a prototype of other types is undefined, and the
+optimizer replaced it with a trap: choosing Campaign without a profile stopped
+the web build) */
 boolean virtual_keyboard_launch(
-	void *text,
-	long maximum_length,
-	long keyboard_type);
+	wchar_t *text_buffer,
+	word buffer_size,
+	short caption_index);
 void *network_game_client_get_game(
 	void *client);
 short network_game_client_get_machine_index(
 	void *client);
 boolean network_game_client_request_start_time_change(
 	void *client,
-	boolean start);
+	short request_type);
 boolean network_game_client_request_remove_player(
 	void *client,
 	void *player);
