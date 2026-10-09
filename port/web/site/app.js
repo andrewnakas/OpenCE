@@ -1449,6 +1449,11 @@ can run the game, copies the game data out of the player's disc image
     if (!ok) return;
     state.checksReady = true;
     showSteps(await mapsState());
+    // ?auto=1 (headless checks): fetch the clean maps if needed, then start
+    if (diagnosticOptions.get('auto') === '1') {
+      if (!state.maps && state.clean) await onCleanChosen();
+      if (state.maps) play();
+    }
   }
 
   main().catch((error) => {
