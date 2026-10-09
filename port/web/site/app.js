@@ -414,7 +414,7 @@ can run the game, copies the game data out of the player's disc image
     const entry = next && CAMPAIGN.includes(name + '.map') && state.clean.files.find(f => f.name === next);
     if (!entry || state.clean.have?.has(next) || state.cleanAhead === next) return;
     state.cleanAhead = next;
-    setTimeout(() => downloadClean([entry]).then(() => log(`map ${next}: fetched ahead`),
+    setTimeout(() => downloadClean([entry]).then(() => log(`map ${next.slice(0, -4)}: fetched ahead`),
       error => { state.cleanAhead = null; log(`map ${next}: ${error.message}`); }), 30000);
   }
 
