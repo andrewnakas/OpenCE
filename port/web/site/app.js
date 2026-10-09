@@ -278,17 +278,21 @@ can run the game, copies the game data out of the player's disc image
         if ((await (await folder.getFileHandle(f.name)).getFile()).size === f.size) { done += f.size; continue; }
       } catch { /* not there yet */ }
       $('progress-text').textContent = `Downloading ${f.name}`;
-      const response = await fetch('clean/' + f.name + '?v=' + f.sha256.slice(0, 12));
-      if (!response.ok) throw new Error(`${f.name}: HTTP ${response.status}`);
-      const reader = response.body.getReader();
       const parts = [];
       let size = 0;
-      for (;;) {
-        const { done: end, value } = await reader.read();
-        if (end) break;
-        parts.push(value);
-        size += value.length;
-        $('progress-fill').style.width = ((done + size) / total * 100).toFixed(1) + '%';
+      // (a large map is served in pieces: name.part0, name.part1, ...)
+      const urls = f.parts ? Array.from({ length: f.parts }, (_, i) => `${f.name}.part${i}`) : [f.name];
+      for (const url of urls) {
+        const response = await fetch('clean/' + url + '?v=' + f.sha256.slice(0, 12));
+        if (!response.ok) throw new Error(`${f.name}: HTTP ${response.status}`);
+        const reader = response.body.getReader();
+        for (;;) {
+          const { done: end, value } = await reader.read();
+          if (end) break;
+          parts.push(value);
+          size += value.length;
+          $('progress-fill').style.width = ((done + size) / total * 100).toFixed(1) + '%';
+        }
       }
       const blob = new Blob(parts);
       if (size !== f.size || await hex(await blob.arrayBuffer()) !== f.sha256) {
@@ -932,6 +936,8 @@ can run the game, copies the game data out of the player's disc image
     }
     if (diagnosticOptions.get('batch_streams') === '0') argumentsList.push('--HALO_WEB_BATCH_STREAMS=0');
     if (diagnosticOptions.get('geometry_cache') === '1') argumentsList.push('--HALO_WEB_GEOMETRY_CACHE=1');
+    const level = (diagnosticOptions.get('level') || '').replace(/[^a-z0-9_]/g, '');
+    if (level && !role) argumentsList.push('--HALO_START_MAP=' + level);
     if (!settings.vsync) argumentsList.push('--HALO_NO_VSYNC=1');
     if (settings.glDebug) argumentsList.push('--HALO_GL_DEBUG=1');
 
@@ -1473,7 +1479,7 @@ can run the game, copies the game data out of the player's disc image
     showSteps(await mapsState());
     // ?auto=1 (headless checks): fetch the clean maps if needed, then start
     if (diagnosticOptions.get('auto') === '1') {
-      if (!state.maps && state.clean) await onCleanChosen(null, diagnosticOptions.has('map'));
+      if (!state.maps && state.clean) await onCleanChosen(null, diagnosticOptions.has('map') || diagnosticOptions.has('level'));
       if (state.maps) play(diagnosticOptions.get('quick') === 'host' ? { role: 'host' } : {});
     }
   }

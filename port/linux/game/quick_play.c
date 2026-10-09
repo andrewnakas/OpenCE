@@ -211,7 +211,19 @@ void quick_play_update(boolean main_menu_loaded)
 		quick_play.checked = TRUE;
 		quick_play.epoch = (unsigned int)web_quick_play_initial_epoch();
 		if (!mode[0])
+		{
+			/* game.start_map: straight into a campaign level (checks, links) */
+			const char *start = config_string("game.start_map");
+
+			if (start && start[0])
+			{
+				static char scenario[128];
+
+				snprintf(scenario, sizeof(scenario), "levels\\%s\\%s", start, start);
+				main_set_map_name(scenario);
+			}
 			return;
+		}
 		if (strcmp(mode, "host") && strcmp(mode, "join"))
 		{
 			quick_play_finish("error", "Invalid quick-play mode. Use the game menus or reload to try again.", FALSE);
