@@ -274,7 +274,7 @@ void quick_play_update(boolean main_menu_loaded)
 				quick_play_finish("error", "Could not create the multiplayer game.", TRUE);
 				return;
 			}
-			quick_play_phase(QUICK_JOINING, now, "hosting", "Creating Beaver Creek Slayer...");
+			quick_play_phase(QUICK_JOINING, now, "hosting", "Creating Slayer...");
 		}
 		else
 		{
@@ -377,7 +377,7 @@ void quick_play_update(boolean main_menu_loaded)
 		{
 			quick_play.player_confirmed = TRUE;
 			quick_play.player_at = now;
-			web_quick_play_report("waiting", quick_play.host ? "Starting Beaver Creek Slayer..." : "Waiting for the host to start...");
+			web_quick_play_report("waiting", quick_play.host ? "Starting Slayer..." : "Waiting for the host to start...");
 		}
 		if (!quick_play.player_confirmed && now - quick_play.retry_at >= 500UL)
 		{
@@ -395,7 +395,7 @@ void quick_play_update(boolean main_menu_loaded)
 			network_game_client_request_immediate_start();
 			quick_play.retry_at = now;
 			if (quick_play.phase != QUICK_STARTING)
-				quick_play_phase(QUICK_STARTING, now, "loading", "Loading Beaver Creek...");
+				quick_play_phase(QUICK_STARTING, now, "loading", "Loading the map...");
 		}
 		else if (!quick_play.host && quick_play.phase != QUICK_STARTING && network_game_client_server_has_started_game(client))
 			quick_play_phase(QUICK_STARTING, now, "loading", "Loading the multiplayer map...");

@@ -314,7 +314,7 @@ can run the game, copies the game data out of the player's disc image
     // the clean-room set is a subset of the disc's maps
     if (state.clean) return state.clean.files.map(f => f.name).filter(n => n === 'ui.map');
     // Desktop invites can name any map. Only browser quick play fixes the
-    // match to Beaver Creek; the full menu retains all supported scenarios.
+    // match to the map; the full menu retains all supported scenarios.
     return !state.manualMode && state.selectedRoom && !state.invite ? QUICK_MAPS : HaloCache.expected;
   }
 
@@ -331,6 +331,10 @@ can run the game, copies the game data out of the player's disc image
     $('play').hidden = automatic;
     $('play').textContent = 'Play main menu';
     $('play').disabled = state.started || (!automatic && (!state.maps || state.dataBusy));
+    // the clean-room site: straight into its multiplayer map, alone or with whoever joins
+    const quick = !!window.HALO_BROWSER_CONFIG?.quickMap && !!state.maps && state.maps.files.includes(QUICK_MAP + '.map');
+    $('quick-clean').hidden = automatic || !quick;
+    $('quick-clean').disabled = state.started || state.dataBusy;
   }
 
   function showSteps(maps) {
@@ -1360,6 +1364,7 @@ can run the game, copies the game data out of the player's disc image
     $('opt-gldebug').onchange = (event) => { settings.glDebug = event.target.checked; saveSettings(); };
     $('iso-file').onchange = onImageChosen;
     $('clean-get').onclick = onCleanChosen;
+    $('quick-clean').onclick = () => { unlockInteraction(); return play({ role: 'host', userGesture: true }); };
     $('play').onclick = () => {
       unlockInteraction();
       if (!state.manualMode && (state.invite || state.selectedRoom)) return maybeQuickPlay();
