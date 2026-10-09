@@ -22,7 +22,8 @@ can run the game, copies the game data out of the player's disc image
   const MEMORY_PAGES = 0x88000000 / 65536;
   const REQUIRED_BYTES = 2.1e9;
   const DEFAULT_ROOM = window.HALO_BROWSER_CONFIG?.defaultRoom ?? 'FQLX01';
-  const QUICK_MAPS = ['ui.map', 'beavercreek.map'];
+  const QUICK_MAP = window.HALO_BROWSER_CONFIG?.quickMap ?? 'beavercreek';
+  const QUICK_MAPS = ['ui.map', QUICK_MAP + '.map'];
   const diagnosticOptions = new URLSearchParams(location.search);
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -907,7 +908,7 @@ can run the game, copies the game data out of the player's disc image
     argumentsList.push('--HALO_WEB_PRESENT_ACK=1');
     if (pixelFrames) argumentsList.push('--HALO_WEB_PIXEL_FRAMES=1');
     if (role) {
-      argumentsList.push('--HALO_QUICK_PLAY=' + role);
+      argumentsList.push('--HALO_QUICK_PLAY=' + role, '--HALO_QUICK_PLAY_MAP=' + QUICK_MAP);
       if (role === 'join' && target) argumentsList.push('--HALO_QUICK_PLAY_TARGET=' + HaloNet.addressText(target));
     }
     if (diagnosticOptions.get('batch_streams') === '0') argumentsList.push('--HALO_WEB_BATCH_STREAMS=0');
@@ -1452,7 +1453,7 @@ can run the game, copies the game data out of the player's disc image
     // ?auto=1 (headless checks): fetch the clean maps if needed, then start
     if (diagnosticOptions.get('auto') === '1') {
       if (!state.maps && state.clean) await onCleanChosen();
-      if (state.maps) play();
+      if (state.maps) play(diagnosticOptions.get('quick') === 'host' ? { role: 'host' } : {});
     }
   }
 

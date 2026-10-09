@@ -154,6 +154,8 @@ static const struct config_setting config_settings[] =
 	{ "network.quick_play", _config_string, "\"\"", "HALO_QUICK_PLAY", _environment_value, _platform_all,
 		"Browser quick play: host starts Beaver Creek Slayer; join finds the chosen host.\n"
 		"Empty keeps the normal game menus. This runs only once per launch." },
+	{ "network.quick_play_map", _config_string, "\"beavercreek\"", "HALO_QUICK_PLAY_MAP", _environment_value, _platform_all,
+		"The multiplayer map quick play hosts." },
 	{ "network.quick_play_target", _config_string, "\"\"", "HALO_QUICK_PLAY_TARGET", _environment_value, _platform_all,
 		"Optional IPv4 address of the quick-play host; empty joins the first open game." },
 #endif

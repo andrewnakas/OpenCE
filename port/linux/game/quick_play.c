@@ -18,6 +18,7 @@ Cancellation and ordinary match endings leave the menus in control. */
 #include "game/game_engine.h"
 #endif
 
+#include <stdio.h>
 #include <string.h>
 
 const char *config_string(const char *name);
@@ -108,12 +109,24 @@ int web_multiplayer_active(void)
 		 game_connection() == _game_connection_network_client);
 }
 
+/* the quick-play map (network.quick_play_map: a multiplayer map's name) */
+static char const *quick_play_map(void)
+{
+	static char scenario[128];
+	char const *name = config_string("network.quick_play_map");
+
+	if (!name || !name[0])
+		name = "beavercreek";
+	snprintf(scenario, sizeof(scenario), "levels\\test\\%s\\%s", name, name);
+	return scenario;
+}
+
 /* The normal host helper initializes its playlist before quick play reaches
 pregame. Select the downloaded map there, rather than precaching Carousel. */
 char const *web_quick_play_initial_map(void)
 {
 	return quick_play.host && quick_play.owned && quick_play.phase == QUICK_SETTLING ?
-		"levels\\test\\beavercreek\\beavercreek" : "";
+		quick_play_map() : "";
 }
 
 /* The quick-play host owns every spawn, including late joins and respawns. */
@@ -349,7 +362,7 @@ void quick_play_update(boolean main_menu_loaded)
 				quick_play_finish("error", "The multiplayer host closed.", TRUE);
 				return;
 			}
-			network_game_server_change_map_name(server, "levels\\test\\beavercreek\\beavercreek");
+			network_game_server_change_map_name(server, quick_play_map());
 			variant = *game_engine_get_variant_by_name(&variant, "slayer");
 			player_ui_set_game_variant(&variant);
 			network_game_server_change_game_variant(server, &variant);
