@@ -235,7 +235,83 @@ can run the game, copies the game data out of the player's disc image
 
   // ---------- game data
 
+  // ---------- clean-room maps (clean/maps.json: [{name, size, sha256}])
+
+  async function loadCleanManifest() {
+    try {
+      const response = await fetch('clean/maps.json', { cache: 'no-cache' });
+      if (!response.ok) return;
+      const manifest = await response.json();
+      const files = (manifest.files || []).filter(f => HaloCache.expected.includes(f.name));
+      if (!files.length || !files.some(f => f.name === 'ui.map')) return;
+      state.clean = { files, version: manifest.version || '' };
+      const megabytes = files.reduce((sum, f) => sum + f.size, 0) / 1e6;
+      $('clean-get').textContent = `Download clean maps (${megabytes.toFixed(0)} MB)`;
+      $('clean-data').hidden = false;
+    } catch (error) {
+      log('clean manifest: ' + error.message);
+    }
+  }
+
+  async function hex(buffer) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
+    return [...digest].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function downloadClean() {
+    const files = state.clean.files;
+    const total = files.reduce((sum, f) => sum + f.size, 0);
+    let done = 0;
+    $('progress').hidden = false;
+    const folder = await HaloCache.directory(['maps'], true);
+    try { await folder.removeEntry('.complete'); } catch { /* none yet */ }
+    for (const f of files) {
+      $('progress-text').textContent = `Downloading ${f.name}`;
+      const response = await fetch('clean/' + f.name + '?v=' + f.sha256.slice(0, 12));
+      if (!response.ok) throw new Error(`${f.name}: HTTP ${response.status}`);
+      const reader = response.body.getReader();
+      const parts = [];
+      let size = 0;
+      for (;;) {
+        const { done: end, value } = await reader.read();
+        if (end) break;
+        parts.push(value);
+        size += value.length;
+        $('progress-fill').style.width = ((done + size) / total * 100).toFixed(1) + '%';
+      }
+      const blob = new Blob(parts);
+      if (size !== f.size || await hex(await blob.arrayBuffer()) !== f.sha256) {
+        throw new Error(`${f.name} did not download correctly; try again.`);
+      }
+      const writable = await (await folder.getFileHandle(f.name, { create: true })).createWritable();
+      await writable.write(blob);
+      await writable.close();
+      done += size;
+    }
+    const marker = await (await folder.getFileHandle('.complete', { create: true })).createWritable();
+    await marker.write(JSON.stringify({ files: files.map(f => f.name), bytes: total, source: 'clean',
+      version: state.clean.version }));
+    await marker.close();
+  }
+
+  async function onCleanChosen() {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    setDataBusy(true);
+    try {
+      await HaloCache.withLock(downloadClean);
+      showSteps(await mapsState());
+      $('progress-text').textContent = state.maps ? 'Done. Clean maps are ready to play.' : 'The clean maps are incomplete.';
+    } catch (error) {
+      $('progress-text').textContent = error.message;
+      log('clean download failed: ' + error.message);
+    } finally {
+      setDataBusy(false);
+    }
+  }
+
   function requiredMaps() {
+    // the clean-room set is a subset of the disc's maps
+    if (state.clean) return state.clean.files.map(f => f.name).filter(n => n === 'ui.map');
     // Desktop invites can name any map. Only browser quick play fixes the
     // match to Beaver Creek; the full menu retains all supported scenarios.
     return !state.manualMode && state.selectedRoom && !state.invite ? QUICK_MAPS : HaloCache.expected;
@@ -279,6 +355,7 @@ can run the game, copies the game data out of the player's disc image
   function setDataBusy(busy) {
     state.dataBusy = busy;
     $('iso-file').disabled = busy;
+    $('clean-get').disabled = busy;
     $('delete-data').disabled = busy;
     updatePlayButton();
     connectPendingInvite();
@@ -1281,6 +1358,7 @@ can run the game, copies the game data out of the player's disc image
     $('opt-gldebug').checked = settings.glDebug;
     $('opt-gldebug').onchange = (event) => { settings.glDebug = event.target.checked; saveSettings(); };
     $('iso-file').onchange = onImageChosen;
+    $('clean-get').onclick = onCleanChosen;
     $('play').onclick = () => {
       unlockInteraction();
       if (!state.manualMode && (state.invite || state.selectedRoom)) return maybeQuickPlay();
@@ -1366,6 +1444,7 @@ can run the game, copies the game data out of the player's disc image
     checkForUpdate();
     setUpOnline();
     setUpInvites();
+    await loadCleanManifest();
     const ok = await runChecks();
     if (!ok) return;
     state.checksReady = true;
