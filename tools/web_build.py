@@ -284,7 +284,10 @@ def generate_web_build(n: Writer, sln: Any) -> None:
     for source in sorted((PORT_DIR / "src").glob("*.c")):
         add_object(source, posix_cflags if source.name in ("web_stubs.c", "web_net.c") else platform_cflags)
     # the high-res HUD, titles and fonts (tools/embed_assets.py), as on Linux
-    for source in hud_assets_build(n, "web", BUILD / "generated" / "hud_hires_assets.c"):
+    # (--web-clean: without the HUD redraws, which are traced from the retail
+    # HUD; the clean-room maps bring their own HUD)
+    no_hud = getattr(sln, "web_clean", False)
+    for source in hud_assets_build(n, "web", BUILD / "generated" / "hud_hires_assets.c", no_hud):
         add_object(source, platform_cflags)
     add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
     add_object(KCP_DIR / "ikcp.c", " ".join([abi, "-std=gnu11", "-w"]))

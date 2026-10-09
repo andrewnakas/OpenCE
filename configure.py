@@ -79,6 +79,11 @@ parser.add_argument(
     type=str,
     help="Emscripten's emcc for `ninja web` (default: emcc on the PATH, or ~/emsdk)",
 )
+parser.add_argument(
+    "--web-clean",
+    action="store_true",
+    help="`ninja web` for the clean-room site: leave out the HUD redraws (port/assets/hud)",
+)
 args = parser.parse_args()
 
 # the settings the builds read
@@ -94,6 +99,7 @@ sln = SimpleNamespace(
     android_ndk=args.android_ndk,
     android_guest_cc=args.android_guest_cc,
     web_emcc=args.web_emcc,
+    web_clean=args.web_clean,
 )
 
 
