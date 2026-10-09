@@ -409,6 +409,7 @@ can run the game, copies the game data out of the player's disc image
 
   // The game is loading a campaign level: fetch the one after it ahead of time.
   function noteMap(name) {
+    log(`map ${name}: loading`);
     const next = state.clean && CAMPAIGN[CAMPAIGN.indexOf(name + '.map') + 1];
     const entry = next && CAMPAIGN.includes(name + '.map') && state.clean.files.find(f => f.name === next);
     if (!entry || state.clean.have?.has(next) || state.cleanAhead === next) return;

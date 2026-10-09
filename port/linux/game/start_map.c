@@ -15,6 +15,10 @@ and script commands at set times for the automated checks. */
 #include <string.h>
 
 const char *config_string(const char *name);
+void web_js_post(int kind, const char *text);
+boolean game_time_get_paused(void);
+real game_time_get_speed(void);
+real main_get_seconds_elapsed(void);
 
 enum
 {
@@ -56,7 +60,7 @@ void start_map_begin(const char *level)
 
 	if (!start_map_choose_profile())
 	{
-		error(2, "start_map: no player profile; progress is not saved");
+		web_js_post(0, "start_map: no player profile; progress is not saved");
 	}
 	snprintf(scenario, sizeof(scenario), "levels\\%s\\%s", level, level);
 	main_set_difficulty(1);
@@ -98,13 +102,38 @@ void start_map_update(boolean main_menu_loaded)
 	{
 		return;
 	}
+	{
+		/* the game clock against the wall clock, every 5 seconds, for the checks' logs */
+		static unsigned long reported;
+		static long frames;
+		static double seconds;
+		unsigned long now = system_milliseconds();
+
+		frames++;
+		seconds += (double)main_get_seconds_elapsed();
+		if (now - reported >= 5000)
+		{
+			char note[160];
+
+			reported = now;
+			snprintf(note, sizeof(note), "game time %ld ticks, paused %d, speed %.2f; %ld frames, %.2f s counted",
+				game_time_get(), (int)game_time_get_paused(), (double)game_time_get_speed(), frames, seconds);
+			web_js_post(0, note);
+			frames = 0;
+			seconds = 0.0;
+		}
+	}
 	for (index = 0; index < command_count; index++)
 	{
 		if (!commands[index].done && game_time_get() >= commands[index].tick)
 		{
+			char note[256];
+
 			commands[index].done = TRUE;
-			error(2, "test_script: %s", commands[index].command);
+			snprintf(note, sizeof(note), "test_script at tick %ld: %s", game_time_get(), commands[index].command);
+			web_js_post(0, note);
 			hs_compile_and_evaluate(commands[index].command);
+			web_js_post(0, "test_script: done");
 		}
 	}
 }
