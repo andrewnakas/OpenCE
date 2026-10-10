@@ -56,7 +56,10 @@ can run the game, copies the game data out of the player's disc image
     dataTransition: false,
     releaseGameLock: null,
     checksReady: false,
-    manualMode: new URLSearchParams(location.search).get('menu') === '1',
+    // The clean-room site waits for a button (main menu, campaign, or its multiplayer map):
+    // a match in the shared room starts by itself only from a ?room= link.
+    manualMode: new URLSearchParams(location.search).get('menu') === '1' ||
+      (!!window.HALO_BROWSER_CONFIG?.quickMap && !new URLSearchParams(location.search).has('room')),
     manualRequested: false,
     selectedRoom: null,
     quickController: null,
@@ -273,11 +276,14 @@ can run the game, copies the game data out of the player's disc image
     const clean = state.clean;
     const missing = list => list.filter(f => stored[f.name] !== f.sha256);
     clean.have = new Set(clean.files.filter(f => stored[f.name] === f.sha256).map(f => f.name));
-    clean.core = missing(clean.files.filter(f => QUICK_MAPS.includes(f.name)));
+    // the first download: the menu, the first campaign level and the multiplayer map, so both
+    // start at once; every other map is fetched when the game asks for it, and kept
+    const first = [...QUICK_MAPS, CAMPAIGN[0]];
+    clean.core = missing(clean.files.filter(f => first.includes(f.name)));
     clean.multiplayer = missing(clean.files.filter(f => !CAMPAIGN.includes(f.name)));
     clean.campaign = missing(clean.files.filter(f => f.name === 'ui.map' || CAMPAIGN.includes(f.name)));
     const update = Object.keys(stored).length ? 'Update' : 'Download';
-    $('clean-get').textContent = `${update} Blood Gulch (${megabytes(clean.core)} MB)`;
+    $('clean-get').textContent = `${update} the game (menu, first level, Blood Gulch: ${megabytes(clean.core)} MB)`;
     $('clean-get').hidden = !clean.core.length;
     $('clean-all').textContent = `All multiplayer maps (${megabytes(clean.multiplayer)} MB)`;
     $('clean-all').hidden = !clean.multiplayer.length || clean.multiplayer.length === clean.core.length;
@@ -1615,7 +1621,8 @@ can run the game, copies the game data out of the player's disc image
     showSteps(await mapsState());
     // ?auto=1 (headless checks): fetch the clean maps if needed, then start
     if (diagnosticOptions.get('auto') === '1') {
-      const wanted = ['ui.map', QUICK_MAP + '.map'];
+      // (&nofetch=1: only the menu, so a check can watch the game ask for its map)
+      const wanted = diagnosticOptions.has('nofetch') ? ['ui.map'] : ['ui.map', QUICK_MAP + '.map'];
       if (state.clean && wanted.some(name => !state.clean.have.has(name))) await onCleanChosen(null, wanted);
       if (state.maps) diagnosticOptions.get('quick') === 'host' ? playSolo() : play();
     }

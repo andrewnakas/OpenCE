@@ -704,6 +704,10 @@ void cache_files_show_multiplayer_unavailable(
 	return;
 }
 
+#ifdef HALO_WEB
+int web_request_map(const char *name);
+#endif
+
 boolean cache_files_give_time_to_precache(
 	char const *map_name)
 {
@@ -743,7 +747,17 @@ boolean cache_files_give_time_to_precache(
 		{
 			cache_files_precache_set_priority(0);
 			if (!cache_files_precache_map_begin(map_name, FALSE))
+			{
+#ifdef HALO_WEB
+				/* a multiplayer map the site has not downloaded yet (a match
+				chosen in the menus, or quick play): the page fetches it now */
+				const char *name = strrchr(map_name, '\\');
+
+				if (!web_request_map(name ? name + 1 : map_name) ||
+					!cache_files_precache_map_begin(map_name, FALSE))
+#endif
 				display_error_damaged_media();
+			}
 		}
 	}
 
