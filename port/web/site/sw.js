@@ -71,7 +71,15 @@ async function installVersion(version) {
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     try {
-      if (!(await activeVersion())) await installVersion(await networkVersion());
+      // A browser that holds an older build takes the new one with this worker: an old
+      // page and runtime against the site's current maps do not fit together (a level
+      // that the old runtime cannot fetch reads as a damaged disc).
+      const latest = await networkVersion();
+      const active = await activeVersion();
+      if (active !== latest) {
+        await installVersion(latest);
+        refreshClients = !!active;
+      }
     } catch {
       // offline or a partial deployment: files come from the network until
       // a later start caches them
@@ -80,8 +88,16 @@ self.addEventListener('install', (event) => {
   })());
 });
 
+let refreshClients = false;
+
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    if (refreshClients) {
+      refreshClients = false;
+      for (const client of await self.clients.matchAll()) client.postMessage('updated');
+    }
+  })());
 });
 
 function isolated(response) {
@@ -127,7 +143,11 @@ async function respond(request) {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
-  if (new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  // Map downloads (tens of MB each) go straight to the network: a body streamed through
+  // this worker ends in a network error when the browser stops the idle worker.
+  if (/\/clean\/[^/]+\.(map|part\d+)$/.test(url.pathname)) return;
   event.respondWith(respond(request));
 });
 

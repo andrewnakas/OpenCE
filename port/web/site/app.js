@@ -1465,6 +1465,8 @@ can run the game, copies the game data out of the player's disc image
       const latest = await (await fetch('version.json?latest=1', { cache: 'no-store' })).json();
       if (latest.version && latest.version !== current.version && navigator.serviceWorker.controller) {
         $('update-notice').hidden = false;
+        // before a game starts the new build is simply taken (the maps on the site are its maps)
+        if (!state.started) $('update-button').click();
       }
     } catch { /* offline */ }
   }
