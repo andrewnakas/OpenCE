@@ -32,21 +32,30 @@ TITLE_ASSETS = Path("port/assets/titles")
 TITLE_LIST = TITLE_ASSETS / "titles.json"
 FONT_ASSETS = Path("port/assets/fonts")
 FONT_LIST = FONT_ASSETS / "fonts.json"
+# the clean-room site (--no-hud): CC0 fonts only, and no upstream title pictures
+# (the clean maps carry their own titles, drawn by the clean room)
+CLEAN_FONT_LIST = FONT_ASSETS / "fonts.clean.json"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
-def font_files() -> List[str]:
-    """The font files fonts.json uses, each once."""
-    if not (ROOT / FONT_LIST).is_file():
+def font_list(no_hud: bool = False) -> Path:
+    return CLEAN_FONT_LIST if no_hud else FONT_LIST
+
+
+def font_files(no_hud: bool = False) -> List[str]:
+    """The font files fonts.json (fonts.clean.json) uses, each once."""
+    if not (ROOT / font_list(no_hud)).is_file():
         return []
-    fonts = json.loads((ROOT / FONT_LIST).read_text())["fonts"]
+    fonts = json.loads((ROOT / font_list(no_hud)).read_text())["fonts"]
     return sorted({font["file"] for font in fonts})
 
 
 def textures(no_hud: bool = False) -> List[tuple]:
     """The textures: each one's folder, its entry in its list, and whether
-    it is a title (no_hud: the titles only)."""
+    it is a title (no_hud: none; the clean maps draw their own titles)."""
     result = []
+    if no_hud:
+        return result
     for folder, listing, title in ((HUD_ASSETS, LAYOUT, False), (TITLE_ASSETS, TITLE_LIST, True)):
         if no_hud and not title:
             continue
@@ -57,11 +66,11 @@ def textures(no_hud: bool = False) -> List[tuple]:
 
 def hud_asset_inputs(no_hud: bool = False) -> List[Path]:
     """The files the generated source is made from."""
-    inputs = [listing for listing in (LAYOUT, TITLE_LIST, FONT_LIST) if (ROOT / listing).is_file()]
+    inputs = [listing for listing in (LAYOUT, TITLE_LIST, font_list(no_hud)) if (ROOT / listing).is_file()]
     if not inputs:
         return []
     return [*inputs, *(folder / f"{asset['name']}.png" for folder, asset, _ in textures(no_hud)),
-            *(FONT_ASSETS / name for name in font_files())]
+            *(FONT_ASSETS / name for name in font_files(no_hud))]
 
 
 def hud_configure_inputs() -> List[Path]:
@@ -138,20 +147,20 @@ def main() -> None:
                      f'{int(title)}, asset{index}, {len(data)} }},')
     lines.append("const struct hud_hires_embedded hud_hires_embedded[] =")
     lines.append("{")
-    lines.extend(table)
+    lines.extend(table or ["\t{ 0 },"])
     lines.append("};")
     lines.append(f"const unsigned int hud_hires_embedded_count = {len(table)};")
     lines.append("")
     # the fonts, and which draws each font tag (text_hires.h)
     lines.append('#include "text_hires.h"')
     lines.append("")
-    files = font_files()
+    files = font_files(no_hud)
     for index, name in enumerate(files):
         lines.append(f"static const unsigned int font{index}[] = {{")
         lines.extend(words((ROOT / FONT_ASSETS / name).read_bytes()))
         lines.append("};")
         lines.append("")
-    fonts = json.loads((ROOT / FONT_LIST).read_text())["fonts"] if files else []
+    fonts = json.loads((ROOT / font_list(no_hud)).read_text())["fonts"] if files else []
     lines.append("const struct text_hires_embedded text_hires_embedded[] =")
     lines.append("{")
     for font in fonts:
