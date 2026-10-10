@@ -72,6 +72,16 @@
       <p id="quick-status" class="small" role="status" aria-live="polite"></p>
       <button id="quick-clean" class="button primary" type="button" hidden>Play Blood Gulch</button>
       <button id="play" class="button primary" type="button">Play main menu</button>
+      <div id="invite-clean" class="invite" hidden>
+        <p><strong>Play with friends</strong>: make a link, send it, and everyone who opens it joins your match
+          (any browser, anywhere; the first player hosts).</p>
+        <div class="row">
+          <label>Map <select id="invite-map"></select></label>
+          <button id="invite-create" class="button" type="button">Create invite link</button>
+        </div>
+        <p id="invite-line" class="small" hidden>Invite link: <code id="invite-link"></code>
+          <button id="invite-copy" class="button small-button" type="button">Copy link</button></p>
+      </div>
       <div class="row">
         <button id="main-menu" class="button" type="button">Main menu</button>
         <button id="quick-retry" class="button" type="button" hidden>Retry multiplayer</button>

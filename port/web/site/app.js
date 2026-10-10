@@ -280,12 +280,15 @@ can run the game, copies the game data out of the player's disc image
     clean.have = new Set(clean.files.filter(f => stored[f.name] === f.sha256).map(f => f.name));
     // the first download: the menu, the first campaign level and the multiplayer map, so both
     // start at once; every other map is fetched when the game asks for it, and kept
-    const first = [...QUICK_MAPS, CAMPAIGN[0]];
+    // (a player who came by an invite link needs only the menu and the match's map)
+    const first = new URLSearchParams(location.search).has('room') ? QUICK_MAPS : [...QUICK_MAPS, CAMPAIGN[0]];
     clean.core = missing(clean.files.filter(f => first.includes(f.name)));
     clean.multiplayer = missing(clean.files.filter(f => !CAMPAIGN.includes(f.name)));
     clean.campaign = missing(clean.files.filter(f => f.name === 'ui.map' || CAMPAIGN.includes(f.name)));
     const update = Object.keys(stored).length ? 'Update' : 'Download';
-    $('clean-get').textContent = `${update} the game (menu, first level, Blood Gulch: ${megabytes(clean.core)} MB)`;
+    $('clean-get').textContent = new URLSearchParams(location.search).has('room') ?
+      `Join the match (${megabytes(clean.core)} MB to download)` :
+      `${update} the game (menu, first level, Blood Gulch: ${megabytes(clean.core)} MB)`;
     $('clean-get').hidden = !clean.core.length;
     $('clean-all').textContent = `All multiplayer maps (${megabytes(clean.multiplayer)} MB)`;
     $('clean-all').hidden = !clean.multiplayer.length || clean.multiplayer.length === clean.core.length;
@@ -1302,10 +1305,61 @@ can run the game, copies the game data out of the player's disc image
 
   function roomLink(code) {
     const url = new URL(location.href);
+    const map = url.searchParams.get('map');
     url.search = '';
     url.hash = '';
     url.searchParams.set('room', code);
+    // (the match's map travels with the link: every player's page starts the same one)
+    if (map && window.HALO_BROWSER_CONFIG?.quickMap) url.searchParams.set('map', map.replace(/[^a-z0-9_]/g, ''));
     return url.toString();
+  }
+
+  // ---------- invite links (the clean-room site)
+
+  const MULTIPLAYER = { beavercreek: 'Battle Creek', bloodgulch: 'Blood Gulch', boardingaction: 'Boarding Action',
+    carousel: 'Derelict', chillout: 'Chill Out', damnation: 'Damnation', hangemhigh: "Hang 'Em High",
+    longest: 'Longest', prisoner: 'Prisoner', putput: 'Chiron TL-34', ratrace: 'Rat Race', sidewinder: 'Sidewinder',
+    wizard: 'Wizard' };
+
+  async function copyInvite(link) {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('The invite link is copied. Send it to your friends.', 5000);
+    } catch { toast('Copy the invite link from the page.', 5000); }
+  }
+
+  function setUpInviteLinks() {
+    if (!window.HALO_BROWSER_CONFIG?.quickMap || !state.clean) return;
+    $('invite-clean').hidden = false;
+    const select = $('invite-map');
+    for (const f of state.clean.files) {
+      const key = f.name.replace(/\.map$/, '');
+      if (!MULTIPLAYER[key]) continue;
+      const option = document.createElement('option');
+      option.value = key;
+      option.textContent = MULTIPLAYER[key];
+      option.selected = key === QUICK_MAP;
+      select.appendChild(option);
+    }
+    // A new room with its map in the link. The page reloads on that link: the match then
+    // starts by itself here, and for everyone who opens the link.
+    $('invite-create').onclick = async () => {
+      const url = new URL(location.href);
+      url.search = '';
+      url.hash = '';
+      url.searchParams.set('room', HaloNet.newRoomCode());
+      url.searchParams.set('map', select.value);
+      await copyInvite(url.toString());
+      try { localStorage.removeItem('halo-web-room-left'); } catch { /* not kept */ }
+      location.href = url.toString();
+    };
+    const room = new URLSearchParams(location.search).get('room');
+    if (room) {
+      const link = roomLink(room.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+      $('invite-link').textContent = link;
+      $('invite-line').hidden = false;
+      $('invite-copy').onclick = () => copyInvite(link);
+    }
   }
 
   function showOnline(status) {
@@ -1617,6 +1671,7 @@ can run the game, copies the game data out of the player's disc image
     setUpOnline();
     setUpInvites();
     await loadCleanManifest();
+    setUpInviteLinks();
     const ok = await runChecks();
     if (!ok) return;
     state.checksReady = true;
