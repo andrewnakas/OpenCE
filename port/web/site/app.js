@@ -30,8 +30,10 @@ can run the game, copies the game data out of the player's disc image
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const pixelFrames = diagnosticOptions.get('frame_transport') === 'rgba' ||
-    (diagnosticOptions.get('frame_transport') !== 'bitmap' &&
-      /Macintosh/.test(navigator.userAgent) && /Chrome|Chromium|Edg\//.test(navigator.userAgent));
+    // Chromium everywhere, not only on macOS: on Windows (Chrome/Edge 154) the GPU process keeps
+    // every transferred ImageBitmap (about 300 MB a second at 144 fps) until it dies: a black
+    // picture, then a crashed tab. Pixel buffers stay flat (measured: 0.6 GB against 10 GB).
+    (diagnosticOptions.get('frame_transport') !== 'bitmap' && /Chrome|Chromium|Edg\//.test(navigator.userAgent));
 
   const state = {
     memory: null,
