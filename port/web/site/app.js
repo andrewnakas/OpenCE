@@ -271,6 +271,27 @@ can run the game, copies the game data out of the player's disc image
     return stored;
   }
 
+  // Maps kept from an earlier version of the clean set are removed, so the game asks for
+  // the current ones (a stored file would otherwise be played as it is). A disc import is
+  // never touched.
+  async function pruneStale() {
+    try {
+      const folder = await HaloCache.directory(['maps'], true);
+      const marker = await readMarker(folder);
+      if (!marker || marker.source !== 'clean' || !Array.isArray(marker.files)) return;
+      const keep = await cleanStored(folder);
+      const stale = marker.files.filter(name => !keep[name]);
+      if (!stale.length) return;
+      for (const name of stale) await folder.removeEntry(name).catch(() => {});
+      let bytes = 0;
+      for (const name of Object.keys(keep)) bytes += (await (await folder.getFileHandle(name)).getFile()).size;
+      const out = await (await folder.getFileHandle('.complete', { create: true })).createWritable();
+      await out.write(JSON.stringify({ files: Object.keys(keep), bytes, source: 'clean', version: state.clean.version, sha: keep }));
+      await out.close();
+      log(`clean maps: removed ${stale.length} from an earlier version (${stale.join(', ')})`);
+    } catch (error) { log('clean maps: ' + error.message); }
+  }
+
   async function refreshClean() {
     const megabytes = list => (list.reduce((sum, f) => sum + f.size, 0) / 1e6).toFixed(0);
     let stored = {};
@@ -307,6 +328,7 @@ can run the game, copies the game data out of the player's disc image
       const files = (manifest.files || []).filter(f => HaloCache.expected.includes(f.name));
       if (!files.length || !files.some(f => f.name === 'ui.map')) return;
       state.clean = { files, version: manifest.version || '' };
+      await pruneStale();
       await refreshClean();
     } catch (error) {
       log('clean manifest: ' + error.message);
