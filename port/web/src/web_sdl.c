@@ -572,7 +572,8 @@ audio thread would. Until the page's audio runs (browsers start it only
 after the player touches the page) and while the page is hidden, the ring is
 drained in real time instead, so the game's sounds still finish on time. */
 
-#define AUDIO_TARGET_FRAMES 3072
+/* 128 ms: a busy machine delays this thread or the worklet by tens of ms (64 ms crackled) */
+#define AUDIO_TARGET_FRAMES 6144
 #define AUDIO_CHANNELS 2
 
 struct web_audio_stream

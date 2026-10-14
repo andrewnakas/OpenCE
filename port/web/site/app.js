@@ -987,8 +987,10 @@ can run the game, copies the game data out of the player's disc image
           read: state.shared + state.offsets.audioRead,
           underruns: state.shared + state.offsets.audioUnderruns,
           rate: 48000,
+          record: Number(diagnosticOptions.get('record')) || 0,
         },
       });
+      node.port.onmessage = (event) => { if (event.data?.recording) window.haloRecording = event.data; };
       node.connect(context.destination);
       Atomics.store(i32, sharedWord('audioOpen'), 1);
       log(`audio: ${context.sampleRate} Hz`);
@@ -1564,7 +1566,14 @@ can run the game, copies the game data out of the player's disc image
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data === 'updated') location.reload();
+      // A running game is never restarted by an update it did not ask for (an automatic
+      // update that finishes after Play would throw the player out of the menu).
+      if (event.data === 'updated') {
+        if (!state.started || state.userUpdate) { location.reload(); return; }
+        $('update-notice').hidden = false;
+        $('update-message').textContent = 'An update is ready. It applies the next time you open the game.';
+        $('update-button').hidden = true;
+      }
       if (event.data === 'update-failed') updateFailed();
     });
   }
@@ -1601,6 +1610,14 @@ can run the game, copies the game data out of the player's disc image
       status('Starting…');
       await play({ userGesture: true });
       if (!state.started) throw new Error($('quick-status').textContent || 'The game did not start. Reload and try again.');
+      status('');
+      // while the player is in the menu, the first campaign level comes down in the background
+      // (each level then fetches the next one ahead while it is played: noteMap)
+      const first = state.clean?.files.find(f => f.name === CAMPAIGN[0]);
+      if (first && !state.clean.have.has(first.name)) {
+        setTimeout(() => downloadClean([first]).then(() => log(`map ${first.name}: fetched ahead from the menu`),
+          error => log(`map ${first.name}: ${error.message}`)), 20000);
+      }
     } catch (error) {
       log('load into menu: ' + error.message);
       status(error.message);
@@ -1657,8 +1674,9 @@ can run the game, copies the game data out of the player's disc image
     $('room-close').onclick = () => showRoomSettings(false);
     $('quick-menu').onclick = openMainMenu;
     $('fatal-menu').onclick = openMainMenu;
-    $('update-button').onclick = () => {
+    $('update-button').onclick = (event) => {
       if ($('update-button').disabled) return;
+      if (event.isTrusted) state.userUpdate = true;
       $('update-button').disabled = true;
       $('update-button').textContent = 'Updating…';
       $('update-message').textContent = 'Downloading the update. The game will restart when it is ready.';

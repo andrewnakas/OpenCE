@@ -28,7 +28,7 @@ so the layout is the same on both sides.
 
 #define WEB_EVENT_CAPACITY 256
 #define WEB_GAMEPAD_COUNT 5
-#define WEB_AUDIO_RING_FRAMES 8192 /* a power of two */
+#define WEB_AUDIO_RING_FRAMES 16384 /* a power of two */
 /* the rings of packets to and from the other players (web_net.c, net.js) */
 #define WEB_NET_OUT_BYTES (1024 * 1024) /* powers of two */
 #define WEB_NET_IN_BYTES (2 * 1024 * 1024)

@@ -12,7 +12,10 @@ this processor reads them at the audio context's rate.
 class HaloAudioProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    const { buffer, ring, ringFrames, write, read, underruns, rate } = options.processorOptions;
+    const { buffer, ring, ringFrames, write, read, underruns, rate, record } = options.processorOptions;
+    // ?record=SECONDS (checks): what is played goes back to the page as well
+    this.record = record ? new Float32Array(Math.round(record * sampleRate) * 2) : null;
+    this.recorded = 0;
     this.ring = new Float32Array(buffer, ring, ringFrames * 2);
     this.words = new Int32Array(buffer);
     this.ringMask = ringFrames - 1;
@@ -26,6 +29,22 @@ class HaloAudioProcessor extends AudioWorkletProcessor {
       if (event.data && event.data.volume !== undefined) this.volume = event.data.volume;
     };
     this.volume = 1;
+    // After running dry the ring must refill this far before playing again, so a late mixer
+    // gives one short soft gap instead of a click every few milliseconds.
+    this.resumeFrames = 2048;
+    this.starved = true;
+    this.lastLeft = 0;
+    this.lastRight = 0;
+    this.fadeIn = false;
+  }
+
+  keep(left, right, frames) {
+    if (!this.record || this.recorded * 2 >= this.record.length) return;
+    for (let i = 0; i < frames && this.recorded * 2 < this.record.length; i++, this.recorded++) {
+      this.record[this.recorded * 2] = left[i];
+      this.record[this.recorded * 2 + 1] = right[i];
+    }
+    if (this.recorded * 2 >= this.record.length) this.port.postMessage({ recording: this.record, rate: sampleRate });
   }
 
   process(inputs, outputs) {
@@ -36,13 +55,25 @@ class HaloAudioProcessor extends AudioWorkletProcessor {
     const write = Atomics.load(this.words, this.writeIndex);
     let read = Atomics.load(this.words, this.readIndex);
     const needed = Math.ceil(this.position + frames * this.step);
+    const queued = write - read;
 
-    if (write - read < needed) {
-      // not enough yet: silence, and let the ring fill
-      left.fill(0);
-      if (right !== left) right.fill(0);
-      Atomics.add(this.words, this.underrunIndex, 1);
+    if (queued < needed || (this.starved && queued < this.resumeFrames)) {
+      // not enough: fade the last sample out (no click), then wait for the ring to refill
+      for (let i = 0; i < frames; i++) {
+        const fade = 1 - (i + 1) / frames;
+        left[i] = this.lastLeft * fade;
+        if (right !== left) right[i] = this.lastRight * fade;
+      }
+      this.lastLeft = 0;
+      this.lastRight = 0;
+      this.keep(left, right, frames);
+      if (!this.starved) Atomics.add(this.words, this.underrunIndex, 1);
+      this.starved = true;
       return true;
+    }
+    if (this.starved) {
+      this.starved = false;
+      this.fadeIn = true;
     }
     const ring = this.ring;
     const mask = this.ringMask;
@@ -70,6 +101,17 @@ class HaloAudioProcessor extends AudioWorkletProcessor {
       read += consumed;
       this.position = position - consumed;
     }
+    if (this.fadeIn) {
+      this.fadeIn = false;
+      for (let i = 0; i < frames; i++) {
+        const fade = (i + 1) / frames;
+        left[i] *= fade;
+        if (right !== left) right[i] *= fade;
+      }
+    }
+    this.keep(left, right, frames);
+    this.lastLeft = left[frames - 1];
+    this.lastRight = right[frames - 1];
     Atomics.store(this.words, this.readIndex, read);
     return true;
   }

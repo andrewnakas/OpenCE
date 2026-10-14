@@ -98,7 +98,24 @@ struct sdl_stream
 	/* gains the mixer is ramping from, to avoid clicks */
 	float current_left, current_right;
 	BOOL gains_valid;
+	/* diagnostics: when the voice last produced sound, and whether it is starving */
+	double last_sound_ms;
+	BOOL starving;
 };
+
+/* diagnostics (logged every 10 s from DirectSoundDoWork): a voice whose queued packets
+all played before the game sent more ("dry"), and a voice that went silent and was fed
+again soon after ("gap": the game queued its next piece late) */
+static unsigned long diag_dry_events, diag_dry_frames, diag_gap_events;
+static double diag_gap_ms, diag_last_log;
+
+static double now_ms(void)
+{
+	struct timespec time;
+
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	return time.tv_sec * 1000.0 + time.tv_nsec / 1e6;
+}
 
 static pthread_mutex_t mixer_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct sdl_stream *streams;
@@ -161,7 +178,12 @@ static int ima_expand(int nibble, int *predictor, int *index)
 
 /* Xbox ADPCM: per block, a 4-byte header per channel (predictor, step
 index), then 4-byte groups of eight nibbles, low nibble first, alternating
-between channels; 64 samples per channel */
+between channels; 64 samples per channel: the header's predictor is the
+first sample and the first 63 nibbles give the rest (the last nibble is
+unused). Decoding all 64 nibbles instead put every block one sample late and
+ended it on a stray value: a click every 1.45 ms block at 44.1 kHz, heard most
+in music (measured on the retail tags too: their block joins are smooth only
+read this way). */
 static short *decode_adpcm(const unsigned char *source, unsigned long size, unsigned long channels,
 	unsigned long *frame_count)
 {
@@ -187,16 +209,18 @@ static short *decode_adpcm(const unsigned char *source, unsigned long size, unsi
 			int index = header[2] > 88 ? 88 : header[2];
 			unsigned long group, byte;
 
+			output[channel] = (short)predictor;
 			for (group = 0; group < 8; group++)
 			{
 				const unsigned char *nibbles = data + 4 * channels + (group * channels + channel) * 4;
 
 				for (byte = 0; byte < 4; byte++)
 				{
-					unsigned long sample = group * 8 + byte * 2;
+					unsigned long sample = group * 8 + byte * 2 + 1;
 
 					output[sample * channels + channel] = (short)ima_expand(nibbles[byte] & 0xf, &predictor, &index);
-					output[(sample + 1) * channels + channel] = (short)ima_expand(nibbles[byte] >> 4, &predictor, &index);
+					if (sample + 1 < XBOX_ADPCM_BLOCK_SAMPLES)
+						output[(sample + 1) * channels + channel] = (short)ima_expand(nibbles[byte] >> 4, &predictor, &index);
 				}
 			}
 		}
@@ -359,7 +383,19 @@ static void mix_voice(struct sdl_stream *stream, float *output, unsigned long fr
 			packet->finished = TRUE;
 		}
 		if (!packet)
+		{
+			if (stream->packet_count)
+			{
+				/* every queued packet has played; the game has not been told yet */
+				if (!stream->starving)
+					diag_dry_events++;
+				stream->starving = TRUE;
+				diag_dry_frames += frames - frame;
+			}
 			break;
+		}
+		stream->starving = FALSE;
+		stream->last_sound_ms = now_ms();
 
 		index = (unsigned long)stream->cursor;
 		fraction = (float)(stream->cursor - (double)index);
@@ -375,8 +411,31 @@ static void mix_voice(struct sdl_stream *stream, float *output, unsigned long fr
 			}
 			else
 			{
-				b0 = a0;
-				b1 = a1;
+				/* the last frame of a packet blends into the next packet's first, when it is
+				queued (holding the last value put a small step at every packet join) */
+				struct voice_packet *after = NULL;
+				unsigned long position;
+
+				for (position = 0; position < stream->packet_count; position++)
+				{
+					struct voice_packet *candidate = &stream->packets[(stream->packet_head + position) % MAXIMUM_STREAM_PACKETS];
+
+					if (candidate == packet && position + 1 < stream->packet_count)
+					{
+						after = &stream->packets[(stream->packet_head + position + 1) % MAXIMUM_STREAM_PACKETS];
+						break;
+					}
+				}
+				if (after && after->frames && !after->finished)
+				{
+					b0 = packet_sample(after, 0, 0, stream->channels);
+					b1 = packet_sample(after, 0, stream->channels - 1, stream->channels);
+				}
+				else
+				{
+					b0 = a0;
+					b1 = a1;
+				}
 			}
 			sample_left = a0 + (b0 - a0) * fraction;
 			sample_right = a1 + (b1 - a1) * fraction;
@@ -650,6 +709,13 @@ static HRESULT STDMETHODCALLTYPE stream_process(IDirectSoundStream *object, LPCX
 		*input->pdwCompletedSize = 0;
 	if (!stream->packet_count)
 	{
+		double silent = now_ms() - stream->last_sound_ms;
+
+		if (stream->last_sound_ms > 0 && silent < 1000.0)
+		{
+			diag_gap_events++;
+			diag_gap_ms += silent;
+		}
 		/* a stream that ran dry starts over */
 		stream->cursor = 0.0;
 		stream->gains_valid = FALSE;
@@ -720,6 +786,17 @@ ULONG WINAPI IDirectSound_Release(LPDIRECTSOUND sound)
 
 VOID WINAPI DirectSoundDoWork(void)
 {
+	double now = now_ms();
+
+	if (now - diag_last_log > 10000.0)
+	{
+		if (diag_dry_events || diag_gap_events)
+			platform_log("audio voices: %lu ran dry (%.0f ms), %lu refed after a gap (%.0f ms in all)",
+				diag_dry_events, diag_dry_frames * 1000.0 / OUTPUT_RATE, diag_gap_events, diag_gap_ms);
+		diag_dry_events = diag_dry_frames = diag_gap_events = 0;
+		diag_gap_ms = 0;
+		diag_last_log = now;
+	}
 	streams_complete_finished();
 }
 
