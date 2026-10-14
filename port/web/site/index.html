@@ -25,7 +25,15 @@
       <p class="subtitle">The Halo: Combat Evolved decompilation, running in your browser.</p>
     </header>
 
+    <div class="simple">
+      <button id="load-menu" class="button primary big" type="button" disabled>Getting ready…</button>
+      <p id="load-status" class="small" role="status" aria-live="polite">First start downloads about 10 MB; campaign levels follow when you pick them.</p>
+    </div>
+
     <div id="checks" class="checks" aria-live="polite"></div>
+
+    <details id="more" class="more">
+    <summary>Multiplayer, downloads and settings</summary>
 
     <div id="install-hint" class="hint" hidden>
       <strong>Install it:</strong> tap <span class="share-glyph" aria-hidden="true">⬆︎</span> Share, then
@@ -137,6 +145,7 @@
       </div>
       <p class="small" id="storage-summary"></p>
       <p class="small" id="version"></p>
+    </details>
     </details>
 
     <p class="legal">An unofficial fan project, not affiliated with or endorsed by Microsoft, Xbox Game Studios

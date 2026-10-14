@@ -143,6 +143,10 @@ code { background: #0e1117; padding: 1px 5px; border-radius: 4px; }
 .button.danger { color: var(--danger); }
 .button:disabled { opacity: 0.5; }
 #play { width: 100%; font-size: 18px; min-height: 52px; margin-top: 12px; }
+.simple { margin: 18px 0 6px; }
+.button.big { width: 100%; font-size: 22px; min-height: 64px; }
+.more { margin-top: 16px; border-top: 1px solid var(--panel-edge); padding-top: 10px; }
+.more > summary { cursor: pointer; color: var(--muted); min-height: 32px; }
 
 .progress { margin-top: 12px; }
 .bar { height: 8px; background: #0e1117; border-radius: 4px; overflow: hidden; }

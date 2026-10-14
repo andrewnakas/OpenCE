@@ -1569,6 +1569,45 @@ can run the game, copies the game data out of the player's disc image
     });
   }
 
+  // ---------- the one button: straight into the game's main menu
+
+  // (the button waits, greyed, until the page's checks are through: a first visit reloads once)
+  let resolveReady;
+  const ready = new Promise(resolve => { resolveReady = resolve; });
+  function markReady(ok) {
+    resolveReady(ok);
+    $('load-menu').disabled = !ok;
+    $('load-menu').textContent = 'Load into menu';
+    if (!ok) $('load-status').textContent = 'This browser cannot run the game (see the checks above).';
+  }
+
+  async function loadIntoMenu() {
+    const status = text => { $('load-status').textContent = text; };
+    const button = $('load-menu');
+    button.disabled = true;
+    unlockInteraction();
+    try {
+      status('Getting ready…');
+      if (!await ready) throw new Error('This browser cannot run the game (see the checks above).');
+      state.manualMode = true;
+      cancelQuickPlay();
+      if (state.clean && !state.clean.have.has('ui.map')) {
+        await HaloCache.withLock(() => downloadClean(state.clean.files.filter(f => f.name === 'ui.map'),
+          (done, total) => status(`Downloading the menu: ${(done / Math.max(total, 1) * 100).toFixed(0)}%`)));
+        await refreshClean();
+        showSteps(await mapsState());
+      }
+      if (!state.maps) throw new Error('The game data is incomplete. Reload the page and try again.');
+      status('Starting…');
+      await play({ userGesture: true });
+      if (!state.started) throw new Error($('quick-status').textContent || 'The game did not start. Reload and try again.');
+    } catch (error) {
+      log('load into menu: ' + error.message);
+      status(error.message);
+      button.disabled = false;
+    }
+  }
+
   // ---------- start
 
   async function main() {
@@ -1607,6 +1646,7 @@ can run the game, copies the game data out of the player's disc image
     $('clean-all').onclick = (event) => onCleanChosen(event, 'multiplayer');
     $('clean-campaign').onclick = (event) => onCleanChosen(event, 'campaign');
     $('quick-clean').onclick = () => { unlockInteraction(); return playSolo({ userGesture: true }); };
+    $('load-menu').onclick = loadIntoMenu;
     $('play').onclick = () => {
       unlockInteraction();
       if (!state.manualMode && (state.invite || state.selectedRoom)) return maybeQuickPlay();
@@ -1695,9 +1735,10 @@ can run the game, copies the game data out of the player's disc image
     await loadCleanManifest();
     setUpInviteLinks();
     const ok = await runChecks();
-    if (!ok) return;
+    if (!ok) { markReady(false); return; }
     state.checksReady = true;
     showSteps(await mapsState());
+    markReady(true);
     // ?auto=1 (headless checks): fetch the clean maps if needed, then start
     if (diagnosticOptions.get('auto') === '1') {
       // (&nofetch=1: only the menu, so a check can watch the game ask for its map)
@@ -1708,6 +1749,7 @@ can run the game, copies the game data out of the player's disc image
   }
 
   main().catch((error) => {
+    markReady(false);
     log('start: ' + (error && error.stack || error));
     addCheck(false, 'The page could not start: ' + error.message);
   });

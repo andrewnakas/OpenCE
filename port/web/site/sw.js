@@ -74,11 +74,17 @@ self.addEventListener('install', (event) => {
       // A browser that holds an older build takes the new one with this worker: an old
       // page and runtime against the site's current maps do not fit together (a level
       // that the old runtime cannot fetch reads as a damaged disc).
-      const latest = await networkVersion();
+      // A first visit holds no build: the worker takes over at once (the page waits for it to
+      // become isolated) and keeps the files after activation, in the background.
       const active = await activeVersion();
-      if (active !== latest) {
-        await installVersion(latest);
-        refreshClients = !!active;
+      if (active) {
+        const latest = await networkVersion();
+        if (active !== latest) {
+          await installVersion(latest);
+          refreshClients = true;
+        }
+      } else {
+        cacheLater = true;
       }
     } catch {
       // offline or a partial deployment: files come from the network until
@@ -89,10 +95,16 @@ self.addEventListener('install', (event) => {
 });
 
 let refreshClients = false;
+let cacheLater = false;
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     await self.clients.claim();
+    if (cacheLater) {
+      cacheLater = false;
+      // not awaited: requests are answered from the network meanwhile
+      networkVersion().then(installVersion).catch(() => {});
+    }
     if (refreshClients) {
       refreshClients = false;
       for (const client of await self.clients.matchAll()) client.postMessage('updated');
